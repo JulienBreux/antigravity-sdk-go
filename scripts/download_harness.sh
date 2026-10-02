@@ -32,17 +32,17 @@ ARCH="$(uname -m)"
 case "${OS}" in
   Darwin)
     case "${ARCH}" in
-      arm64)  PLATFORM_TAG="macosx_11_0_arm64" ;;
-      x86_64) PLATFORM_TAG="macosx_10_9_x86_64" ;;
+      arm64)  PLATFORM_TAG="macosx[^\" ]*arm64" ;;
+      x86_64) PLATFORM_TAG="macosx[^\" ]*x86_64" ;;
       *)      echo "Error: Unsupported macOS architecture: ${ARCH}" >&2; exit 1 ;;
     esac
     BINARY_NAME="localharness"
     ;;
   Linux)
     case "${ARCH}" in
-      x86_64)  PLATFORM_TAG="manylinux_2_17_x86_64.manylinux2014_x86_64" ;;
-      aarch64) PLATFORM_TAG="manylinux_2_17_aarch64.manylinux2014_aarch64" ;;
-      *)       echo "Error: Unsupported Linux architecture: ${ARCH}" >&2; exit 1 ;;
+      x86_64|amd64)   PLATFORM_TAG="manylinux[^\" ]*x86_64" ;;
+      aarch64|arm64) PLATFORM_TAG="manylinux[^\" ]*aarch64" ;;
+      *)             echo "Error: Unsupported Linux architecture: ${ARCH}" >&2; exit 1 ;;
     esac
     BINARY_NAME="localharness"
     ;;
@@ -63,25 +63,27 @@ esac
 echo "==> Detected platform: ${OS}/${ARCH} (wheel tag: ${PLATFORM_TAG})"
 
 # --- Query PyPI for download URL ---
-echo "==> Querying PyPI for ${PACKAGE_NAME}..."
-PYPI_JSON=$(curl -sSfL "https://pypi.org/pypi/${PACKAGE_NAME}/json")
-
 if [ -z "${VERSION}" ]; then
-  VERSION=$(echo "${PYPI_JSON}" | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4)
+  echo "==> Querying PyPI for latest version of ${PACKAGE_NAME}..."
+  LATEST_JSON=$(curl -sSfL "https://pypi.org/pypi/${PACKAGE_NAME}/json")
+  VERSION=$(echo "${LATEST_JSON}" | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4)
   echo "==> Latest version: ${VERSION}"
 fi
+
+echo "==> Querying PyPI for ${PACKAGE_NAME} v${VERSION}..."
+PYPI_JSON=$(curl -sSfL "https://pypi.org/pypi/${PACKAGE_NAME}/${VERSION}/json")
 
 # Find the matching wheel URL from the release files
 WHEEL_URL=$(echo "${PYPI_JSON}" | \
   grep -o "\"url\":\"[^\"]*${PLATFORM_TAG}[^\"]*\.whl\"" | \
   head -1 | \
-  cut -d'"' -f4)
+  cut -d'"' -f4 || true)
 
 if [ -z "${WHEEL_URL}" ]; then
   echo "Error: Could not find a wheel for platform '${PLATFORM_TAG}' in ${PACKAGE_NAME} v${VERSION}" >&2
   echo "" >&2
   echo "Available wheels:" >&2
-  echo "${PYPI_JSON}" | grep -o '"url":"[^"]*\.whl"' | cut -d'"' -f4 | sed 's/^/  /' >&2
+  echo "${PYPI_JSON}" | grep -o '"filename":"[^"]*\.whl"' | cut -d'"' -f4 | sed 's/^/  /' >&2 || true
   exit 1
 fi
 
@@ -116,5 +118,4 @@ echo "To use it, either:"
 echo "  export ANTIGRAVITY_HARNESS_PATH=\"${BIN_DIR}/${BINARY_NAME}\""
 echo "  or add ${BIN_DIR} to your PATH"
 echo ""
-"${BIN_DIR}/${BINARY_NAME}" --version 2>/dev/null && echo "" || true
 echo "Done!"
